@@ -9,10 +9,9 @@ import (
 // versionCmd represents the version command
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "A brief description of your command",
+	Short: "Displays the version of the Kubernetes Cloud Foundry stager.",
 	Run: func(cmd *cobra.Command, args []string) {
-		// TODO: Work your own magic here
-		fmt.Println("version called")
+		fmt.Println(stagerVersion)
 	},
 }
 

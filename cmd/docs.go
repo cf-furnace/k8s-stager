@@ -9,7 +9,7 @@ import (
 // docsCmd represents the docs command
 var docsCmd = &cobra.Command{
 	Use:   "docs",
-	Short: "A brief description of your command",
+	Short: "Subcommands for generating documentation.",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("docs called")
 	},
