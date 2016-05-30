@@ -22,6 +22,10 @@
 			"Rev": "9699ab6b38bee2e02cd3fe8b99ecf67665395c96"
 		},
 		{
+			"ImportPath": "github.com/go-openapi/swag",
+			"Rev": "f8ab07bb33bb43a743eb65daf0588ab522e5160f"
+		},
+		{
 			"ImportPath": "github.com/go-swagger/go-swagger/errors",
 			"Comment": "0.4.0-29-g4fc282a",
 			"Rev": "4fc282a149e998dbe8703bd2e2643d14c7d71c0f"
@@ -150,6 +154,10 @@
 		{
 			"ImportPath": "github.com/opennota/urlesc",
 			"Rev": "5fa9ff0392746aeae1c4b37fcc42c65afa7a9587"
+		},
+		{
+			"ImportPath": "github.com/pivotal-golang/lager",
+			"Rev": "81d18ed6a75f16276fed99134f0e8397ec2e91e2"
 		},
 		{
 			"ImportPath": "github.com/spf13/cast",
