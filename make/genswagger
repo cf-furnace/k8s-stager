@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -o errexit
+
+. make/include/colors.sh
+
+GIT_ROOT=${GIT_ROOT:-$(git rev-parse --show-toplevel)}
+
+echo "${OK_COLOR}==> Generating staging server ${NO_COLOR}"
+rm -rf ${GIT_ROOT}/lib/operations ${GIT_ROOT}/lib/genmodel
+
+${GIT_ROOT}/.tools/swagger generate server -f ${GIT_ROOT}/cc-bridge-swagger/stager/stager-api.yml -m model -s "swagger" -A k8s_swagger -t ${GIT_ROOT}/lib --exclude-main
+
+rm lib/swagger/server.go
