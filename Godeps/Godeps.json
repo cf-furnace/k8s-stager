@@ -22,8 +22,64 @@
 			"Rev": "9699ab6b38bee2e02cd3fe8b99ecf67665395c96"
 		},
 		{
+			"ImportPath": "github.com/go-openapi/analysis",
+			"Rev": "5a8fe2138f95138797c306c07e65e759c55f898f"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/errors",
+			"Rev": "8a4ac38004d8cdb96dac7bece88034dd3d94493f"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/jsonpointer",
+			"Rev": "f5133566e18f23f2085d953998fd72959b698623"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/jsonreference",
+			"Rev": "44d0c05f81b60f99eeb8c188b8983ec82e5d872f"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/loads",
+			"Rev": "3a4490f96e6ea1ba7d66602e70ffca0fc26aa6ca"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/runtime",
+			"Rev": "b12d766cb7ccfdac98c946f9f0ab4afa8c6aeadc"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/runtime/middleware",
+			"Rev": "b12d766cb7ccfdac98c946f9f0ab4afa8c6aeadc"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/runtime/middleware/denco",
+			"Rev": "b12d766cb7ccfdac98c946f9f0ab4afa8c6aeadc"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/runtime/middleware/header",
+			"Rev": "b12d766cb7ccfdac98c946f9f0ab4afa8c6aeadc"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/runtime/middleware/untyped",
+			"Rev": "b12d766cb7ccfdac98c946f9f0ab4afa8c6aeadc"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/runtime/security",
+			"Rev": "b12d766cb7ccfdac98c946f9f0ab4afa8c6aeadc"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/spec",
+			"Rev": "2029f5179022b7e840b71a663b1fda7fb24e49a0"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/strfmt",
+			"Rev": "66a99d45c3043d45d346b1c8db5dc2f76a004869"
+		},
+		{
 			"ImportPath": "github.com/go-openapi/swag",
 			"Rev": "f8ab07bb33bb43a743eb65daf0588ab522e5160f"
+		},
+		{
+			"ImportPath": "github.com/go-openapi/validate",
+			"Rev": "14872542e3bd537d6d6b9976e066ff658d41975f"
 		},
 		{
 			"ImportPath": "github.com/go-swagger/go-swagger/errors",
