@@ -7,7 +7,7 @@ import (
 	"github.com/cf-furnace/k8s-stager/lib/swagger"
 	"github.com/cf-furnace/k8s-stager/lib/swagger/operations"
 
-	spec "github.com/go-swagger/go-swagger/spec"
+	"github.com/go-openapi/loads"
 	"github.com/pivotal-golang/lager"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -32,7 +32,7 @@ var runCmd = &cobra.Command{
 		logger := lib.NewLogger(flagLogLevel)
 
 		// Load swagger spec
-		swaggerSpec, err := spec.New(swagger.SwaggerJSON, "")
+		swaggerSpec, err := loads.Analyzed(swagger.SwaggerJSON, "")
 		if err != nil {
 			logger.Fatal("initializing-swagger-failed", err)
 		}
