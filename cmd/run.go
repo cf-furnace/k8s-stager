@@ -16,6 +16,7 @@ import (
 var (
 	flagLogLevel string
 	flagListen   string
+	flagStagerId string
 )
 
 // runCmd represents the run command
@@ -27,6 +28,7 @@ var runCmd = &cobra.Command{
 		// Load configuration
 		flagLogLevel = viper.GetString("log-level")
 		flagListen = viper.GetString("listen")
+		flagStagerId = viper.GetString("id")
 
 		// Create a logger
 		logger := lib.NewLogger(flagLogLevel)
@@ -65,6 +67,13 @@ func init() {
 		"L",
 		"info",
 		"Logging level.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"id",
+		"i",
+		"",
+		"Identifier of the stager.",
 	)
 
 	viper.BindPFlags(runCmd.PersistentFlags())
