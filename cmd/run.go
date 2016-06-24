@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/cf-furnace/k8s-stager/lib"
+	"github.com/cf-furnace/k8s-stager/lib/k8s"
 	"github.com/cf-furnace/k8s-stager/lib/swagger"
 	"github.com/cf-furnace/k8s-stager/lib/swagger/operations"
 
@@ -13,41 +15,61 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	flagLogLevel string
-	flagListen   string
-	flagStagerId string
-)
-
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Runs the Kubernetes Cloud Foundry Stager",
 	Run: func(cmd *cobra.Command, args []string) {
+		var err error
+		serverConfig := &lib.ServerConfig{}
 
 		// Load configuration
-		flagLogLevel = viper.GetString("log-level")
-		flagListen = viper.GetString("listen")
-		flagStagerId = viper.GetString("id")
+		serverConfig.LogLevel = viper.GetString("log-level")
+		serverConfig.Listen = viper.GetString("listen")
+		serverConfig.StagerId = viper.GetString("id")
+		serverConfig.StagingImage = viper.GetString("staging-image")
+		serverConfig.K8SAPIEndpoint = viper.GetString("k8s-endpoint")
+		serverConfig.K8SNamespace = viper.GetString("k8s-namespace")
+		serverConfig.StagingStopGracePeriodSeconds = int64(viper.GetDuration("k8s-endpoint").Seconds())
+		serverConfig.SkipCertVerification = viper.GetBool("skip-cert-verify")
+		serverConfig.AppLifecycleURL = viper.GetString("app-lifecycle-url")
+		serverConfig.CustomImageCommand = viper.GetString("custom-image-command")
 
 		// Create a logger
-		logger := lib.NewLogger(flagLogLevel)
+		serverConfig.Logger = lib.NewLogger(serverConfig.LogLevel)
+
+		// Connect to Kubernetes
+		serverConfig.K8SClient, err = k8s.NewStager(
+			serverConfig.K8SAPIEndpoint,
+			serverConfig.StagerId,
+			serverConfig.Logger,
+		)
+
+		if err != nil {
+			serverConfig.Logger.Fatal(
+				"Could not connect to Kubernetes",
+				err,
+				lager.Data{
+					"K8SEndpoint": serverConfig.K8SAPIEndpoint,
+				},
+			)
+		}
 
 		// Load swagger spec
 		swaggerSpec, err := loads.Analyzed(swagger.SwaggerJSON, "")
 		if err != nil {
-			logger.Fatal("initializing-swagger-failed", err)
+			serverConfig.Logger.Fatal("initializing-swagger-failed", err)
 		}
 
-		logger.Info("start-listening", lager.Data{"address": flagListen})
+		serverConfig.Logger.Info("start-listening", lager.Data{"address": serverConfig.Listen})
 
 		api := operations.NewK8sSwaggerAPI(swaggerSpec)
 
-		stagerServer := swagger.ConfigureAPI(api)
+		stagerServer := swagger.ConfigureAPI(api, serverConfig)
 
-		err = http.ListenAndServe(flagListen, stagerServer)
+		err = http.ListenAndServe(serverConfig.Listen, stagerServer)
 		if err != nil {
-			logger.Fatal("listening-failed", err)
+			serverConfig.Logger.Fatal("listening-failed", err)
 		}
 	},
 }
@@ -72,8 +94,57 @@ func init() {
 	runCmd.PersistentFlags().StringP(
 		"id",
 		"i",
-		"",
+		"stager-0",
 		"Identifier of the stager.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"staging-image",
+		"s",
+		"viovanov/stager",
+		"Image to use for staging.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"k8s-endpoint",
+		"k",
+		"",
+		"Kubernetes HTTP API endpoint.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"k8s-namespace",
+		"n",
+		"furnace-staging",
+		"Kubernetes namespace to use for staging.",
+	)
+
+	runCmd.PersistentFlags().DurationP(
+		"stage-stop-grace",
+		"g",
+		time.Second*60,
+		"Grace period for staging stop.",
+	)
+
+	runCmd.PersistentFlags().BoolP(
+		"skip-cert-verify",
+		"S",
+		false,
+		"Skip certificate validation when staging.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"app-lifecycle-url",
+		"a",
+		"",
+		"Application lifecycle URL.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"custom-image-command",
+		"c",
+		"",
+		"Custom entrypoint to use when running the staging command.",
 	)
 
 	viper.BindPFlags(runCmd.PersistentFlags())

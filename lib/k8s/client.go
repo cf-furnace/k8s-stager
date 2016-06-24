@@ -1,32 +1,57 @@
 package k8s
 
 import (
+	"crypto/md5"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	client "github.com/kubernetes/kubernetes/pkg/client/unversioned"
 	"github.com/pivotal-golang/lager"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/client/restclient"
 )
 
+type Buildpack struct {
+	Id          string `json:"id"`
+	DownloadURL string `json:"url"`
+}
+
 type StagingInfo struct {
-	DropletId       string
-	DockerImageName string
-	Environment     map[string]string
-	Command         []string
+	Id               string
+	Image            string
+	Environment      map[string]string
+	Command          []string
+	Stack            string
+	Buildpacks       []*Buildpack
+	AppLifecycleURL  string
+	AppPackageURL    string
+	DropletUploadURL string
+	SkipCertVerify   bool
+	SkipDetection    bool
+}
+
+func (s *StagingInfo) DecomposeStagingGuid() (string, string, error) {
+	pieces := strings.Split(s.Id, "-")
+
+	if len(pieces) != 6 {
+		return "", "", fmt.Errorf("Invalid staging guid %s: Expected to be of form XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+	}
+
+	taskId := pieces[5]
+	return strings.Join(pieces[0:5], "-"), taskId, nil
 }
 
 type K8SStagingClient interface {
-	Init(address string, logger lager.Logger) error
-
 	CreateStagingNamespace(organization, space string) error
-	GetStagingNamespace(organization, space string) error
-	RemoveStagingNamespace(organization, space string) error
+	GetStagingNamespace(space string) (*api.Namespace, bool, error)
+	RemoveStagingNamespace(space string) error
 
 	StartStaging(stagingData *StagingInfo, space string) error
-	GetStagingTask(stagingData *StagingInfo, space string) error
-	StopStaging(stagingData *StagingInfo, space string) error
+	GetStagingTask(id, space string) (*batch.Job, bool, error)
+	StopStaging(id, space string, gracePeriod int64) error
 }
 
 type Stager struct {
@@ -85,16 +110,20 @@ func (s *Stager) CreateStagingNamespace(organization, space string) error {
 	return err
 }
 
-func (s *Stager) GetStagingNamespace(space string) (*api.Namespace, error) {
+func (s *Stager) GetStagingNamespace(space string) (*api.Namespace, bool, error) {
 	name := formatStagingNamespace(space)
 
 	namespace, err := s.k8sClient.Namespaces().Get(name)
 
 	if err != nil {
-		return nil, err
+		if errors.IsNotFound(err) {
+			return nil, false, nil
+		} else {
+			return nil, false, err
+		}
 	}
 
-	return namespace, nil
+	return namespace, true, nil
 }
 
 func (s *Stager) RemoveStagingNamespace(space string) error {
@@ -104,7 +133,42 @@ func (s *Stager) RemoveStagingNamespace(space string) error {
 
 func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 	namespace := formatStagingNamespace(space)
-	name := formatStagingJobName(stagingData.DropletId)
+	name := formatStagingJobName(stagingData.Id)
+
+	buildpacksJSON, err := json.Marshal(stagingData.Buildpacks)
+	if err != nil {
+		s.logger.Error(
+			"Error marshalling buildpacks JSON.",
+			err,
+			lager.Data{
+				"StagingId":  stagingData.Id,
+				"Buildpacks": stagingData.Buildpacks,
+			},
+		)
+	}
+
+	buildpackOrderList := make([]string, len(stagingData.Buildpacks))
+
+	for idx, buildpack := range stagingData.Buildpacks {
+		buildpackOrderList[idx] = buildpack.Id
+	}
+
+	// TODO: Write some code to either error or warn if we're overriding
+	// env vars that are already set
+	stagingData.Environment["CF_STACK"] = stagingData.Stack
+	stagingData.Environment["CF_BUILDPACKS"] = string(buildpacksJSON)
+	stagingData.Environment["CF_BUILDPACKS_ORDER"] = strings.Join(buildpackOrderList, ",")
+	stagingData.Environment["CF_BUILDPACK_APP_LIFECYCLE"] = stagingData.AppLifecycleURL
+	stagingData.Environment["CF_APP_PACKAGE"] = stagingData.AppPackageURL
+	stagingData.Environment["CF_DROPLET_UPLOAD_LOCATION"] = stagingData.DropletUploadURL
+	stagingData.Environment["CF_SKIP_CERT_VERIFY"] = fmt.Sprintf("%t", stagingData.SkipCertVerify)
+	stagingData.Environment["CF_SKIP_DETECT"] = fmt.Sprintf("%t", stagingData.SkipDetection)
+
+	appId, taskId, err := stagingData.DecomposeStagingGuid()
+
+	if err != nil {
+		return err
+	}
 
 	job := &batch.Job{
 		ObjectMeta: api.ObjectMeta{
@@ -112,9 +176,10 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 			Name:      name,
 
 			Labels: map[string]string{
-				"cf-droplet-id": stagingData.DropletId,
-				"cf-space":      space,
-				"stager-id":     s.StagerId,
+				"app-id":    appId,
+				"task-id":   taskId,
+				"cf-space":  space,
+				"stager-id": s.StagerId,
 			},
 		},
 		Spec: batch.JobSpec{
@@ -123,17 +188,18 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 					Name:      name,
 					Namespace: namespace,
 					Labels: map[string]string{
-						"cf-droplet-id": stagingData.DropletId,
-						"cf-space":      space,
-						"stager-id":     s.StagerId,
+						"app-id":    appId,
+						"task-id":   taskId,
+						"cf-space":  space,
+						"stager-id": s.StagerId,
 					},
 				},
 				Spec: api.PodSpec{
 					Containers: []api.Container{
 						api.Container{
 							Name:    name,
-							Image:   stagingData.DockerImageName,
-							Env:     convertEnvvironmentVariables(stagingData.Environment),
+							Image:   stagingData.Image,
+							Env:     convertEnvironmentVariables(stagingData.Environment),
 							Command: stagingData.Command,
 						},
 					},
@@ -143,33 +209,43 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 		},
 	}
 
-	_, err := s.k8sClient.BatchClient.Jobs(namespace).Create(job)
+	_, err = s.k8sClient.BatchClient.Jobs(namespace).Create(job)
 	return err
 }
 
-func (s *Stager) GetStagingTask(dropletId, space string) (*batch.Job, error) {
+func (s *Stager) GetStagingTask(id, space string) (*batch.Job, bool, error) {
 	namespace := formatStagingNamespace(space)
-	name := formatStagingJobName(dropletId)
+	name := formatStagingJobName(id)
 
-	return s.k8sClient.BatchClient.Jobs(namespace).Get(name)
+	result, err := s.k8sClient.BatchClient.Jobs(namespace).Get(name)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, false, nil
+		} else {
+			return nil, false, err
+		}
+	}
+
+	return result, true, nil
 }
 
-func (s *Stager) StopStaging(dropletId, space string, gracePeriod int64) error {
+func (s *Stager) StopStaging(id, space string, gracePeriod int64) error {
 	namespace := formatStagingNamespace(space)
-	name := formatStagingJobName(dropletId)
+	name := formatStagingJobName(id)
 
-	return s.k8sClient.BatchClient.Jobs(namespace).Delete(name, api.NewDeleteOptions(gracePeriod))
+	return s.k8sClient.BatchClient.Jobs(namespace).Delete(name, nil)
 }
 
 func formatStagingNamespace(space string) string {
 	return fmt.Sprintf("cf-staging-%s", space)
 }
 
-func formatStagingJobName(dropletId string) string {
-	return fmt.Sprintf("cf-droplet-stage-%s", dropletId)
+func formatStagingJobName(id string) string {
+	return fmt.Sprintf("cf-stage-%s", fmt.Sprintf("%x", md5.Sum([]byte(id))))
 }
 
-func convertEnvvironmentVariables(envVars map[string]string) []api.EnvVar {
+func convertEnvironmentVariables(envVars map[string]string) []api.EnvVar {
 	result := []api.EnvVar{}
 
 	for k, v := range envVars {
