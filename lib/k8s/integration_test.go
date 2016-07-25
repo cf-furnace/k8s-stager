@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cf-furnace/k8s-stager/lib"
+	"github.com/cf-furnace/k8s-stager/lib/logger"
 
 	"github.com/pivotal-golang/lager"
 	"github.com/satori/go.uuid"
@@ -64,10 +64,11 @@ func TestGetNamespaceNotOK(t *testing.T) {
 	assert.NoError(err)
 
 	// Act
-	_, err = stager.GetStagingNamespace("foo")
+	_, exists, err := stager.GetStagingNamespace("foo")
 
 	// Assert
-	assert.Error(err)
+	assert.NoError(err)
+	assert.False(exists)
 }
 
 func TestCreateNamespaceOK(t *testing.T) {

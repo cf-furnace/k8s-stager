@@ -6,6 +6,7 @@ import (
 
 	"github.com/cf-furnace/k8s-stager/lib"
 	"github.com/cf-furnace/k8s-stager/lib/k8s"
+	"github.com/cf-furnace/k8s-stager/lib/logger"
 	"github.com/cf-furnace/k8s-stager/lib/swagger"
 	"github.com/cf-furnace/k8s-stager/lib/swagger/operations"
 
@@ -36,7 +37,7 @@ var runCmd = &cobra.Command{
 		serverConfig.CustomImageCommand = viper.GetString("custom-image-command")
 
 		// Create a logger
-		serverConfig.Logger = lib.NewLogger(serverConfig.LogLevel)
+		serverConfig.Logger = logger.NewLogger(serverConfig.LogLevel)
 
 		// Connect to Kubernetes
 		serverConfig.K8SClient, err = k8s.NewStager(
