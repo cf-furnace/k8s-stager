@@ -197,10 +197,11 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 				Spec: api.PodSpec{
 					Containers: []api.Container{
 						api.Container{
-							Name:    name,
-							Image:   stagingData.Image,
-							Env:     convertEnvironmentVariables(stagingData.Environment),
-							Command: stagingData.Command,
+							Name:            name,
+							Image:           stagingData.Image,
+							Env:             convertEnvironmentVariables(stagingData.Environment),
+							Command:         stagingData.Command,
+							ImagePullPolicy: api.PullAlways,
 						},
 					},
 					RestartPolicy: api.RestartPolicyNever,
