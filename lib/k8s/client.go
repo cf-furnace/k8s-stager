@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"code.cloudfoundry.org/lager"
 	client "github.com/kubernetes/kubernetes/pkg/client/unversioned"
-	"github.com/pivotal-golang/lager"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/apis/batch"
@@ -20,17 +20,18 @@ type Buildpack struct {
 }
 
 type StagingInfo struct {
-	Id               string
-	Image            string
-	Environment      map[string]string
-	Command          []string
-	Stack            string
-	Buildpacks       []*Buildpack
-	AppLifecycleURL  string
-	AppPackageURL    string
-	DropletUploadURL string
-	SkipCertVerify   bool
-	SkipDetection    bool
+	Id                    string
+	Image                 string
+	Environment           map[string]string
+	Command               []string
+	Stack                 string
+	Buildpacks            []*Buildpack
+	AppLifecycleURL       string
+	AppPackageURL         string
+	DropletUploadURL      string
+	SkipCertVerify        bool
+	SkipDetection         bool
+	CompletionCallbackURL string
 }
 
 func (s *StagingInfo) DecomposeStagingGuid() (string, string, error) {
@@ -62,10 +63,15 @@ type Stager struct {
 	k8sClient *client.Client
 }
 
-func NewStager(address string, stagerId string, logger lager.Logger) (*Stager, error) {
+func NewStager(address string, stagerId, kubeClientCertFile, kubeClientKeyFile, kubeCACertFile string, logger lager.Logger) (*Stager, error) {
 
 	config := restclient.Config{
 		Host: address,
+		TLSClientConfig: restclient.TLSClientConfig{
+			CertFile: kubeClientCertFile,
+			KeyFile:  kubeClientKeyFile,
+			CAFile:   kubeCACertFile,
+		},
 	}
 
 	logger.Info("Trying to connect to Kubernetes API", lager.Data{"k8s_api_url": address})
@@ -155,6 +161,7 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 
 	// TODO: Write some code to either error or warn if we're overriding
 	// env vars that are already set
+	stagingData.Environment["CF_TASK_ID"] = stagingData.Id
 	stagingData.Environment["CF_STACK"] = stagingData.Stack
 	stagingData.Environment["CF_BUILDPACKS"] = string(buildpacksJSON)
 	stagingData.Environment["CF_BUILDPACKS_ORDER"] = strings.Join(buildpackOrderList, ",")
@@ -163,6 +170,7 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 	stagingData.Environment["CF_DROPLET_UPLOAD_LOCATION"] = stagingData.DropletUploadURL
 	stagingData.Environment["CF_SKIP_CERT_VERIFY"] = fmt.Sprintf("%t", stagingData.SkipCertVerify)
 	stagingData.Environment["CF_SKIP_DETECT"] = fmt.Sprintf("%t", stagingData.SkipDetection)
+	stagingData.Environment["CF_COMPLETION_CALLBACK_URL"] = stagingData.CompletionCallbackURL
 
 	appId, taskId, err := stagingData.DecomposeStagingGuid()
 
@@ -197,11 +205,10 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 				Spec: api.PodSpec{
 					Containers: []api.Container{
 						api.Container{
-							Name:            name,
-							Image:           stagingData.Image,
-							Env:             convertEnvironmentVariables(stagingData.Environment),
-							Command:         stagingData.Command,
-							ImagePullPolicy: api.PullAlways,
+							Name:    name,
+							Image:   stagingData.Image,
+							Env:     convertEnvironmentVariables(stagingData.Environment),
+							Command: stagingData.Command,
 						},
 					},
 					RestartPolicy: api.RestartPolicyNever,

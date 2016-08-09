@@ -201,7 +201,7 @@ func (o *K8sSwaggerAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers[strings.ToUpper("POST")] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/staging/{staging_guid}"] = NewStagingComplete(o.context, o.StagingCompleteHandler)
+	o.handlers["POST"]["/staging/{staging_guid}/completed"] = NewStagingComplete(o.context, o.StagingCompleteHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers[strings.ToUpper("DELETE")] = make(map[string]http.Handler)

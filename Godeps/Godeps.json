@@ -7,6 +7,30 @@
 	],
 	"Deps": [
 		{
+			"ImportPath": "code.cloudfoundry.org/bbs/encryption",
+			"Rev": "414d0754ed6e1da253cb50068f9e329838dbc6a8"
+		},
+		{
+			"ImportPath": "code.cloudfoundry.org/bbs/format",
+			"Rev": "414d0754ed6e1da253cb50068f9e329838dbc6a8"
+		},
+		{
+			"ImportPath": "code.cloudfoundry.org/bbs/models",
+			"Rev": "414d0754ed6e1da253cb50068f9e329838dbc6a8"
+		},
+		{
+			"ImportPath": "code.cloudfoundry.org/lager",
+			"Rev": "62951a8009ab331bb21dc418074fa54e66eb9b6a"
+		},
+		{
+			"ImportPath": "code.cloudfoundry.org/runtimeschema/cc_messages",
+			"Rev": "dff8e11d8e95a4b1a8cd55a49cd7c3fd457585c6"
+		},
+		{
+			"ImportPath": "code.cloudfoundry.org/stager/cc_client",
+			"Rev": "a17238648796efa81aa948464d57b77808c6eb68"
+		},
+		{
 			"ImportPath": "github.com/BurntSushi/toml",
 			"Comment": "v0.2.0",
 			"Rev": "bbd5bb678321a0d6e58f1099321dfa73391c1b6f"
@@ -189,6 +213,11 @@
 		},
 		{
 			"ImportPath": "github.com/gogo/protobuf/proto",
+			"Comment": "v0.2-55-ge33835a",
+			"Rev": "e33835a643a970c11ac74f6333f5f6866387a101"
+		},
+		{
+			"ImportPath": "github.com/gogo/protobuf/sortkeys",
 			"Comment": "v0.2-55-ge33835a",
 			"Rev": "e33835a643a970c11ac74f6333f5f6866387a101"
 		},

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,8 +11,8 @@ import (
 	"github.com/cf-furnace/k8s-stager/lib/swagger"
 	"github.com/cf-furnace/k8s-stager/lib/swagger/operations"
 
+	"code.cloudfoundry.org/lager"
 	"github.com/go-openapi/loads"
-	"github.com/pivotal-golang/lager"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -27,6 +28,8 @@ var runCmd = &cobra.Command{
 		// Load configuration
 		serverConfig.LogLevel = viper.GetString("log-level")
 		serverConfig.Listen = viper.GetString("listen")
+		serverConfig.Port = viper.GetInt("port")
+		serverConfig.AdvertiseAddress = viper.GetString("advertise-address")
 		serverConfig.StagerId = viper.GetString("id")
 		serverConfig.StagingImage = viper.GetString("staging-image")
 		serverConfig.K8SAPIEndpoint = viper.GetString("k8s-endpoint")
@@ -35,6 +38,12 @@ var runCmd = &cobra.Command{
 		serverConfig.SkipCertVerification = viper.GetBool("skip-cert-verify")
 		serverConfig.AppLifecycleURL = viper.GetString("app-lifecycle-url")
 		serverConfig.CustomImageCommand = viper.GetString("custom-image-command")
+		serverConfig.KBSClientCertFile = viper.GetString("k8s-client-cert")
+		serverConfig.K8SClientKeyFile = viper.GetString("k8s-client-key")
+		serverConfig.K8SCACertFile = viper.GetString("k8s-cacert")
+		serverConfig.CCBaseURL = viper.GetString("cc-baseurl")
+		serverConfig.CCUsername = viper.GetString("cc-username")
+		serverConfig.CCPassword = viper.GetString("cc-password")
 
 		// Create a logger
 		serverConfig.Logger = logger.NewLogger(serverConfig.LogLevel)
@@ -43,6 +52,9 @@ var runCmd = &cobra.Command{
 		serverConfig.K8SClient, err = k8s.NewStager(
 			serverConfig.K8SAPIEndpoint,
 			serverConfig.StagerId,
+			serverConfig.KBSClientCertFile,
+			serverConfig.K8SClientKeyFile,
+			serverConfig.K8SCACertFile,
 			serverConfig.Logger,
 		)
 
@@ -62,13 +74,19 @@ var runCmd = &cobra.Command{
 			serverConfig.Logger.Fatal("initializing-swagger-failed", err)
 		}
 
-		serverConfig.Logger.Info("start-listening", lager.Data{"address": serverConfig.Listen})
+		serverConfig.Logger.Info(
+			"start-listening",
+			lager.Data{
+				"address": serverConfig.Listen,
+				"port":    serverConfig.Port,
+			},
+		)
 
 		api := operations.NewK8sSwaggerAPI(swaggerSpec)
 
 		stagerServer := swagger.ConfigureAPI(api, serverConfig)
 
-		err = http.ListenAndServe(serverConfig.Listen, stagerServer)
+		err = http.ListenAndServe(fmt.Sprintf("%s:%d", serverConfig.Listen, serverConfig.Port), stagerServer)
 		if err != nil {
 			serverConfig.Logger.Fatal("listening-failed", err)
 		}
@@ -81,8 +99,22 @@ func init() {
 	runCmd.PersistentFlags().StringP(
 		"listen",
 		"l",
-		"0.0.0.0:8080",
+		"0.0.0.0",
 		"Address to listen on.",
+	)
+
+	runCmd.PersistentFlags().IntP(
+		"port",
+		"",
+		8080,
+		"Port to listen on.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"advertise-address",
+		"",
+		"",
+		"Address of stager, as used by other components.",
 	)
 
 	runCmd.PersistentFlags().StringP(
@@ -146,6 +178,48 @@ func init() {
 		"c",
 		"",
 		"Custom entrypoint to use when running the staging command.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"k8s-client-cert",
+		"",
+		"",
+		"Path to a PEM-encoded client certificate.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"k8s-client-key",
+		"",
+		"",
+		"Path to a PEM-encoded client key.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"k8s-cacert",
+		"",
+		"",
+		"Path to a PEM-encoded CA certificate for connecting to kubernetes.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"cc-baseurl",
+		"",
+		"",
+		"Cloud controller API location.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"cc-username",
+		"",
+		"",
+		"Cloud Controller internal API username.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"cc-password",
+		"",
+		"",
+		"Cloud Controller internal API password.",
 	)
 
 	viper.BindPFlags(runCmd.PersistentFlags())

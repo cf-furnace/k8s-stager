@@ -27,7 +27,7 @@ func NewStagingComplete(ctx *middleware.Context, handler StagingCompleteHandler)
 	return &StagingComplete{Context: ctx, Handler: handler}
 }
 
-/*StagingComplete swagger:route POST /staging/{staging_guid} stagingComplete
+/*StagingComplete swagger:route POST /staging/{staging_guid}/completed stagingComplete
 
 StagingComplete staging complete API
 

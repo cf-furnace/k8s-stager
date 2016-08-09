@@ -10,10 +10,12 @@ import (
 	"github.com/cf-furnace/k8s-stager/lib/k8s"
 	"github.com/cf-furnace/k8s-stager/lib/swagger/operations"
 
+	"code.cloudfoundry.org/lager"
+	"code.cloudfoundry.org/runtimeschema/cc_messages"
+	"code.cloudfoundry.org/stager/cc_client"
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/pivotal-golang/lager"
 )
 
 var (
@@ -135,6 +137,12 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 			DropletUploadURL: params.StagingRequest.LifecycleData.DropletUploadURI,
 			SkipCertVerify:   serverConfig.SkipCertVerification,
 			SkipDetection:    false,
+			CompletionCallbackURL: fmt.Sprintf(
+				"http://%s:%d/v1/staging/%s/completed",
+				serverConfig.AdvertiseAddress,
+				serverConfig.Port,
+				params.StagingGUID,
+			),
 		}
 
 		serverConfig.Logger.Info(
@@ -169,7 +177,35 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 			"StagingCompleteRequest": params.StagingCompleteRequest,
 		})
 
-		return middleware.NotImplemented("operation .StagingComplete has not yet been implemented")
+		ccClient := cc_client.NewCcClient(
+			serverConfig.CCBaseURL,
+			serverConfig.CCUsername,
+			serverConfig.CCPassword,
+			serverConfig.SkipCertVerification,
+		)
+
+		var annotation cc_messages.StagingTaskAnnotation
+
+		err := ccClient.StagingComplete(
+			params.StagingCompleteRequest.TaskGUID,
+			annotation.CompletionCallback,
+			[]byte(params.StagingCompleteRequest.Result),
+			serverConfig.Logger)
+
+		if err != nil {
+			serverConfig.Logger.Error("Error calling CC staging complete", err)
+			if _, ok := err.(*cc_client.BadResponseError); ok {
+				return &operations.StagingCompleteBadRequest{}
+			} else {
+				return &operations.StagingCompleteServiceUnavailable{}
+			}
+
+			return &operations.StagingCompleteNotFound{}
+		}
+
+		serverConfig.Logger.Info("Called CC staging complete")
+
+		return &operations.StagingCompleteOK{}
 	})
 
 	api.StopStagingHandler = operations.StopStagingHandlerFunc(func(params operations.StopStagingParams) middleware.Responder {

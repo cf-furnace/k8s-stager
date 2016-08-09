@@ -3,7 +3,7 @@ package logger
 import (
 	"os"
 
-	"github.com/pivotal-golang/lager"
+	"code.cloudfoundry.org/lager"
 )
 
 //enum used to describe the possible values for logging
