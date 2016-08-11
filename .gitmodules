@@ -1,3 +1,3 @@
 [submodule "cc-bridge-swagger"]
 	path = cc-bridge-swagger
-	url = git@github.com:cf-furnace/cc-bridge-swagger
+	url = https://github.com/cf-furnace/cc-bridge-swagger
