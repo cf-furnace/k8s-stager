@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
+	"os"
 	"time"
 
 	"github.com/cf-furnace/k8s-stager/lib"
@@ -11,10 +11,18 @@ import (
 	"github.com/cf-furnace/k8s-stager/lib/swagger"
 	"github.com/cf-furnace/k8s-stager/lib/swagger/operations"
 
+	"code.cloudfoundry.org/clock"
+	"code.cloudfoundry.org/consuladapter"
 	"code.cloudfoundry.org/lager"
+	"github.com/cloudfoundry-incubator/locket"
 	"github.com/go-openapi/loads"
+	"github.com/hashicorp/consul/api"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/tedsuo/ifrit"
+	"github.com/tedsuo/ifrit/grouper"
+	"github.com/tedsuo/ifrit/http_server"
+	"github.com/tedsuo/ifrit/sigmon"
 )
 
 // runCmd represents the run command
@@ -44,6 +52,7 @@ var runCmd = &cobra.Command{
 		serverConfig.CCBaseURL = viper.GetString("cc-baseurl")
 		serverConfig.CCUsername = viper.GetString("cc-username")
 		serverConfig.CCPassword = viper.GetString("cc-password")
+		serverConfig.ConsulCluster = viper.GetString("consul-cluster")
 
 		// Create a logger
 		serverConfig.Logger = logger.NewLogger(serverConfig.LogLevel)
@@ -86,11 +95,48 @@ var runCmd = &cobra.Command{
 
 		stagerServer := swagger.ConfigureAPI(api, serverConfig)
 
-		err = http.ListenAndServe(fmt.Sprintf("%s:%d", serverConfig.Listen, serverConfig.Port), stagerServer)
+		consulClient, err := consuladapter.NewClientFromUrl(serverConfig.ConsulCluster)
 		if err != nil {
-			serverConfig.Logger.Fatal("listening-failed", err)
+			serverConfig.Logger.Fatal("new-consul-client-failed", err)
 		}
+
+		clock := clock.NewClock()
+		registrationRunner := initializeRegistrationRunner(serverConfig.Logger, consulClient, serverConfig.Port, clock)
+
+		members := grouper.Members{
+			{"server", http_server.New(fmt.Sprintf("%s:%d", serverConfig.Listen, serverConfig.Port), stagerServer)},
+			{"registration-runner", registrationRunner},
+		}
+
+		group := grouper.NewOrdered(os.Interrupt, members)
+
+		monitor := ifrit.Invoke(sigmon.New(group))
+
+		serverConfig.Logger.Info("started")
+
+		err = <-monitor.Wait()
+		if err != nil {
+			serverConfig.Logger.Error("exited-with-failure", err)
+			os.Exit(1)
+		}
+
+		serverConfig.Logger.Info("exited")
 	},
+}
+
+func initializeRegistrationRunner(
+	logger lager.Logger,
+	consulClient consuladapter.Client,
+	port int,
+	clock clock.Clock) ifrit.Runner {
+	registration := &api.AgentServiceRegistration{
+		Name: "stager",
+		Port: port,
+		Check: &api.AgentServiceCheck{
+			TTL: "3s",
+		},
+	}
+	return locket.NewRegistrationRunner(logger, registration, consulClient, locket.RetryInterval, clock)
 }
 
 func init() {
@@ -220,6 +266,13 @@ func init() {
 		"",
 		"",
 		"Cloud Controller internal API password.",
+	)
+
+	runCmd.PersistentFlags().StringP(
+		"consul-cluster",
+		"",
+		"",
+		"Consul used for service discovery.",
 	)
 
 	viper.BindPFlags(runCmd.PersistentFlags())

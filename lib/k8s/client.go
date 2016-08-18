@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"code.cloudfoundry.org/lager"
-	client "github.com/kubernetes/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/client/restclient"
+	client "k8s.io/kubernetes/pkg/client/unversioned"
 )
 
 type Buildpack struct {

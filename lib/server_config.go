@@ -26,4 +26,5 @@ type ServerConfig struct {
 	CCBaseURL                     string
 	CCUsername                    string
 	CCPassword                    string
+	ConsulCluster                 string
 }

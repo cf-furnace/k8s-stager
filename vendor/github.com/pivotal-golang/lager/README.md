@@ -1,7 +1,7 @@
 lager
 =====
 
-[![Build Status](https://travis-ci.org/pivotal-golang/lager.svg?branch=master)](https://travis-ci.org/pivotal-golang/lager)
+**Note**: This repository should be imported as `code.cloudfoundry.org/lager`.
 
 Lager is a logging library for go.
 
@@ -11,10 +11,10 @@ Instantiate a logger with the name of your component.
 
 ```go
 import (
-  "github.com/pivotal-golang/lager"
+  "code.cloudfoundry.org/lager"
 )
 
-logger := logger.New("my-app")
+logger := lager.NewLogger("my-app")
 ```
 
 ### Sinks
@@ -33,7 +33,7 @@ logger.RegisterSink(lager.NewWriterSink(myWriter, lager.INFO))
 Lager supports the usual level-based logging, with an optional argument for arbitrary key-value data.
 
 ```go
-logger.Info("doing-stuff", logger.Data{
+logger.Info("doing-stuff", lager.Data{
   "informative": true,
 })
 ```
@@ -60,7 +60,7 @@ You can avoid repetition of contextual data using 'Sessions':
 
 ```go
 
-contextualLogger := logger.Session("my-task", logger.Data{
+contextualLogger := logger.Session("my-task", lager.Data{
   "request-id": 5,
 })
 
@@ -75,4 +75,4 @@ output:
 
 ## License
 
-Lager is [Apache 2.0](https://github.com/pivotal-golang/lager/blob/master/LICENSE) licensed.
+Lager is [Apache 2.0](https://github.com/cloudfoundry/lager/blob/master/LICENSE) licensed.
