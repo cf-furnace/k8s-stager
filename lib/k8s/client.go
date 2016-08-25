@@ -178,6 +178,8 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 		return err
 	}
 
+	vcapUid := int64(2000)
+
 	job := &batch.Job{
 		ObjectMeta: api.ObjectMeta{
 			Namespace: namespace,
@@ -209,6 +211,10 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 							Image:   stagingData.Image,
 							Env:     convertEnvironmentVariables(stagingData.Environment),
 							Command: stagingData.Command,
+							SecurityContext: &api.SecurityContext{
+								RunAsUser: &vcapUid,
+							},
+							WorkingDir: "/home/vcap/",
 						},
 					},
 					RestartPolicy: api.RestartPolicyNever,
