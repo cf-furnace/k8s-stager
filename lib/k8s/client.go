@@ -1,10 +1,11 @@
 package k8s
 
 import (
-	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/cf-furnace/pkg/cloudfoundry"
 
 	"code.cloudfoundry.org/lager"
 	"k8s.io/kubernetes/pkg/api"
@@ -32,17 +33,6 @@ type StagingInfo struct {
 	SkipCertVerify        bool
 	SkipDetection         bool
 	CompletionCallbackURL string
-}
-
-func (s *StagingInfo) DecomposeStagingGuid() (string, string, error) {
-	pieces := strings.Split(s.Id, "-")
-
-	if len(pieces) != 6 {
-		return "", "", fmt.Errorf("Invalid staging guid %s: Expected to be of form XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-	}
-
-	taskId := pieces[5]
-	return strings.Join(pieces[0:5], "-"), taskId, nil
 }
 
 type K8SStagingClient interface {
@@ -139,7 +129,6 @@ func (s *Stager) RemoveStagingNamespace(space string) error {
 
 func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 	namespace := formatStagingNamespace(space)
-	name := formatStagingJobName(stagingData.Id)
 
 	buildpacksJSON, err := json.Marshal(stagingData.Buildpacks)
 	if err != nil {
@@ -172,8 +161,7 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 	stagingData.Environment["CF_SKIP_DETECT"] = fmt.Sprintf("%t", stagingData.SkipDetection)
 	stagingData.Environment["CF_COMPLETION_CALLBACK_URL"] = stagingData.CompletionCallbackURL
 
-	appId, taskId, err := stagingData.DecomposeStagingGuid()
-
+	taskGuid, err := cloudfoundry.NewTaskGuid(stagingData.Id)
 	if err != nil {
 		return err
 	}
@@ -183,31 +171,26 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 	job := &batch.Job{
 		ObjectMeta: api.ObjectMeta{
 			Namespace: namespace,
-			Name:      name,
-
+			Name:      taskGuid.ShortenedGuid(),
 			Labels: map[string]string{
-				"app-id":    appId,
-				"task-id":   taskId,
-				"cf-space":  space,
-				"stager-id": s.StagerId,
+				"cloudfoundry.org/app-guid":   taskGuid.AppGuid.String(),
+				"cloudfoundry.org/space-guid": space,
+				"cloudfoundry.org/task-guid":  taskGuid.ShortenedGuid(),
 			},
 		},
 		Spec: batch.JobSpec{
 			Template: api.PodTemplateSpec{
 				ObjectMeta: api.ObjectMeta{
-					Name:      name,
-					Namespace: namespace,
 					Labels: map[string]string{
-						"app-id":    appId,
-						"task-id":   taskId,
-						"cf-space":  space,
-						"stager-id": s.StagerId,
+						"cloudfoundry.org/app-guid":   taskGuid.AppGuid.String(),
+						"cloudfoundry.org/space-guid": space,
+						"cloudfoundry.org/task-guid":  taskGuid.ShortenedGuid(),
 					},
 				},
 				Spec: api.PodSpec{
 					Containers: []api.Container{
 						api.Container{
-							Name:    name,
+							Name:    "staging",
 							Image:   stagingData.Image,
 							Env:     convertEnvironmentVariables(stagingData.Environment),
 							Command: stagingData.Command,
@@ -229,9 +212,12 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 
 func (s *Stager) GetStagingTask(id, space string) (*batch.Job, bool, error) {
 	namespace := formatStagingNamespace(space)
-	name := formatStagingJobName(id)
+	taskGuid, err := cloudfoundry.NewTaskGuid(id)
+	if err != nil {
+		return nil, false, err
+	}
 
-	result, err := s.k8sClient.BatchClient.Jobs(namespace).Get(name)
+	result, err := s.k8sClient.BatchClient.Jobs(namespace).Get(taskGuid.ShortenedGuid())
 
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -246,17 +232,16 @@ func (s *Stager) GetStagingTask(id, space string) (*batch.Job, bool, error) {
 
 func (s *Stager) StopStaging(id, space string, gracePeriod int64) error {
 	namespace := formatStagingNamespace(space)
-	name := formatStagingJobName(id)
+	taskGuid, err := cloudfoundry.NewTaskGuid(id)
+	if err != nil {
+		return err
+	}
 
-	return s.k8sClient.BatchClient.Jobs(namespace).Delete(name, nil)
+	return s.k8sClient.BatchClient.Jobs(namespace).Delete(taskGuid.ShortenedGuid(), nil)
 }
 
 func formatStagingNamespace(space string) string {
 	return fmt.Sprintf("cf-staging-%s", space)
-}
-
-func formatStagingJobName(id string) string {
-	return fmt.Sprintf("cf-stage-%s", fmt.Sprintf("%x", md5.Sum([]byte(id))))
 }
 
 func convertEnvironmentVariables(envVars map[string]string) []api.EnvVar {
