@@ -180,7 +180,7 @@ func init() {
 	runCmd.PersistentFlags().StringP(
 		"staging-image",
 		"s",
-		"viovanov/stager",
+		"cffurnace/stager",
 		"Image to use for staging.",
 	)
 

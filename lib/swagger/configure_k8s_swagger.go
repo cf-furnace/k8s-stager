@@ -205,6 +205,23 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 
 		serverConfig.Logger.Info("Called CC staging complete")
 
+		serverConfig.Logger.Info("Removing staging job")
+
+		// Delete the job from Kubernetes
+		err = serverConfig.K8SClient.StopStaging(params.StagingGUID, params.StagingCompleteRequest.Space, serverConfig.StagingStopGracePeriodSeconds)
+
+		if err != nil {
+			serverConfig.Logger.Error(
+				"Error deleting the staging job.",
+				err,
+				lager.Data{
+					"StagingId": params.StagingGUID,
+				},
+			)
+
+			return &operations.StagingCompleteServiceUnavailable{}
+		}
+
 		return &operations.StagingCompleteOK{}
 	})
 

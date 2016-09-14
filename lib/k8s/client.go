@@ -160,6 +160,7 @@ func (s *Stager) StartStaging(stagingData *StagingInfo, space string) error {
 	stagingData.Environment["CF_SKIP_CERT_VERIFY"] = fmt.Sprintf("%t", stagingData.SkipCertVerify)
 	stagingData.Environment["CF_SKIP_DETECT"] = fmt.Sprintf("%t", stagingData.SkipDetection)
 	stagingData.Environment["CF_COMPLETION_CALLBACK_URL"] = stagingData.CompletionCallbackURL
+	stagingData.Environment["CF_SPACE"] = space
 
 	taskGuid, err := cloudfoundry.NewTaskGuid(stagingData.Id)
 	if err != nil {

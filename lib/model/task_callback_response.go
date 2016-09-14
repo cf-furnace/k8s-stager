@@ -35,6 +35,10 @@ type TaskCallbackResponse struct {
 	 */
 	Result string `json:"result,omitempty"`
 
+	/* space
+	 */
+	Space string `json:"space,omitempty"`
+
 	/* task guid
 	 */
 	TaskGUID string `json:"task_guid,omitempty"`
