@@ -1,0 +1,211 @@
+#!/usr/bin/ruby
+
+require 'digest'
+require 'json'
+require 'net/http'
+require 'openssl'
+require 'tempfile'
+require 'uri'
+
+
+
+def connect(uri)
+  http = Net::HTTP.new(uri.host, uri.port)
+  if uri.scheme == "https"
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+  end
+  http
+end
+
+def download(from, to)
+  dir = to
+  if Dir.exists?(dir)
+    puts "======> #{dir} already cached"
+    return
+  end
+
+  puts "======> Downloading #{from} to #{to}"
+  temp = Tempfile.new('temp')
+  File.open(temp.path, "wb") do |file|
+    uri = URI(from)
+    response = connect(uri).get(uri.request_uri) { |str| file.write(str) }
+    response.value
+  end
+
+  FileUtils.mkdir_p(dir)
+  if from.end_with? ".tgz"
+    %x"tar pxfz #{temp.path} -C #{dir}"
+  else
+    %x"unzip -q -d #{dir} #{temp.path}"
+  end
+end
+
+def upload(from, to)
+  puts "======> Uploading #{from} to #{to}"
+
+  uri = URI.parse(to)
+  user = uri.user # => "user"
+  password = uri.password # => "pass"
+  uri.user = ""
+  uri.password = ""
+
+  puts 'running `curl -k -XPOST -u #{user}:#{password} -F "file=$droplet_hash" -F "image=@#{from}" #{uri.to_s}`'
+  puts `curl -k -XPOST -u #{user}:#{password} -F "file=$droplet_hash" -F "image=@#{from}" #{uri.to_s}`
+end
+
+# -------------------------------------------------------------------------
+
+begin
+  puts "Running as user #{`whoami`}"
+
+  configuration_has_errors = false
+
+  if ENV['CF_BUILDPACKS']
+    buildpacks = JSON.parse(ENV['CF_BUILDPACKS'])
+  else
+    STDERR.puts 'Env var CF_BUILDPACKS is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_BUILDPACKS_ORDER']
+    buildpacks_order = ENV['CF_BUILDPACKS_ORDER']
+  else
+    STDERR.puts 'Env var CF_BUILDPACKS_ORDER is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_BUILDPACK_APP_LIFECYCLE']
+    buildpack_app_lifecycle = ENV['CF_BUILDPACK_APP_LIFECYCLE']
+  else
+    STDERR.puts 'Env var CF_BUILDPACK_APP_LIFECYCLE is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_APP_PACKAGE']
+    app_package = ENV['CF_APP_PACKAGE']
+  else
+    STDERR.puts 'Env var CF_APP_PACKAGE is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_DROPLET_UPLOAD_LOCATION']
+    droplet_upload_location = ENV['CF_DROPLET_UPLOAD_LOCATION']
+  else
+    STDERR.puts 'Env var CF_DROPLET_UPLOAD_LOCATION is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_SKIP_CERT_VERIFY']
+    skip_cert_verify = ENV['CF_SKIP_CERT_VERIFY']
+  else
+    STDERR.puts 'Env var CF_SKIP_CERT_VERIFY is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_SKIP_DETECT']
+    skip_detect = ENV['CF_SKIP_DETECT']
+  else
+    STDERR.puts 'Env var CF_SKIP_DETECT is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_COMPLETION_CALLBACK_URL']
+    cf_completion_callback_url = ENV['CF_COMPLETION_CALLBACK_URL']
+  else
+    STDERR.puts 'Env var CF_COMPLETION_CALLBACK_URL is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_TASK_ID']
+    cf_task_id = ENV['CF_TASK_ID']
+  else
+    STDERR.puts 'Env var CF_TASK_ID is not set.'
+    configuration_has_errors = true
+  end
+
+  if ENV['CF_SPACE']
+    cf_space = ENV['CF_SPACE']
+  else
+    STDERR.puts 'Env var CF_SPACE is not set.'
+    configuration_has_errors = true
+  end
+
+  if configuration_has_errors
+    exit 1
+  end
+
+  app_location = '/tmp/app'
+  buildpacks_location = '/tmp/buildpacks'
+  lifecycle_location = '/tmp/lifecycle'
+  build_artifacts_cache_location = '/tmp/cache'
+
+  output_droplet_location = '/tmp/droplet'
+  output_artifacts_cache_location = '/tmp/output-cache'
+  output_metadata_location = '/tmp/result.json'
+
+  # Download buildpacks
+  buildpacks.each do |buildpack|
+    bp_location = File.join(buildpacks_location, Digest::MD5.hexdigest(buildpack['id']))
+    download(buildpack['url'], bp_location)
+  end
+
+  # Download lifecycle
+  download(buildpack_app_lifecycle, lifecycle_location)
+
+  # Download app package
+  download(app_package, app_location)
+
+  # Run the "builder"
+  builder_path = File.join(lifecycle_location, 'builder')
+
+  args = ["-buildArtifactsCacheDir=#{build_artifacts_cache_location}",
+  "-buildDir=#{app_location}",
+  "-buildpackOrder=#{buildpacks_order}",
+  "-buildpacksDir=#{buildpacks_location}",
+  "-outputBuildArtifactsCache=#{output_artifacts_cache_location}",
+  "-outputDroplet=#{output_droplet_location}",
+  "-outputMetadata=#{output_metadata_location}",
+  "-skipCertVerify=#{skip_cert_verify}",
+  "-skipDetect=#{skip_detect}"]
+
+  # XXX We should stream the output of the builder and not wait until it is done
+  puts %x"#{builder_path} #{args.join(' ')}"
+  puts "Exit status #{$?.exitstatus}"
+  exit if $?.exitstatus > 0
+
+  # Upload droplet
+  upload(output_droplet_location, droplet_upload_location)
+
+  # Call the completion endpoint
+  puts "Calling the completion endpoint: #{cf_completion_callback_url}"
+
+
+  result_file = File.read(output_metadata_location)
+  results_json = JSON.parse(result_file)
+  results_json = {
+    'result' => results_json
+  }
+
+  completion_data = {
+      'task_guid' => cf_task_id,
+      'failed' => false,
+      'failure_reason' => 'none',
+      'result' => results_json.to_json,
+      'annotation' => '',
+      'created_at' => 0,
+      'space' => cf_space
+  }
+
+  uri = URI(cf_completion_callback_url)
+  req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+  req.body = completion_data.to_json
+  res = Net::HTTP.start(uri.hostname, uri.port) do |http|
+    http.request(req)
+  end
+rescue
+  puts "Something went wrong: #{$!}"
+  puts $!.backtrace
+end
+
+puts "--- The End ---"
