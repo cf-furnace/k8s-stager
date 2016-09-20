@@ -46,7 +46,7 @@ type StagingRequestFromCC struct {
 
 	/* lifecycle data
 	 */
-	LifecycleData *LifecycleData `json:"lifecycle_data,omitempty"`
+	LifecycleData interface{} `json:"lifecycle_data,omitempty"`
 
 	/* log guid
 	 */
@@ -71,11 +71,6 @@ func (m *StagingRequestFromCC) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateEnvironment(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
-	if err := m.validateLifecycleData(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -129,22 +124,6 @@ func (m *StagingRequestFromCC) validateEnvironment(formats strfmt.Registry) erro
 			}
 		}
 
-	}
-
-	return nil
-}
-
-func (m *StagingRequestFromCC) validateLifecycleData(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.LifecycleData) { // not required
-		return nil
-	}
-
-	if m.LifecycleData != nil {
-
-		if err := m.LifecycleData.Validate(formats); err != nil {
-			return err
-		}
 	}
 
 	return nil

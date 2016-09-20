@@ -2,9 +2,11 @@ package swagger
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cf-furnace/k8s-stager/lib"
 	"github.com/cf-furnace/k8s-stager/lib/k8s"
@@ -18,8 +20,17 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
+const (
+	DockerLifecycleName    = "docker"
+	BuildpackLifecycleName = "buildpack"
+)
+
 var (
 	serverConfig *lib.ServerConfig
+	Lifecycles   = map[string]string{
+		DockerLifecycleName:    "",
+		BuildpackLifecycleName: "",
+	}
 )
 
 // ConfigureAPI configures the Stager API server
@@ -42,10 +53,10 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 			"StagingRequest": params.StagingRequest,
 		})
 
-		if params.StagingRequest.Lifecycle != "buildpack" {
+		if _, ok := Lifecycles[params.StagingRequest.Lifecycle]; !ok {
 			serverConfig.Logger.Error(
-				"Tried to stage using a lifecycle other than 'buildpack'",
-				fmt.Errorf("K8S stager can only stage apps wilth a 'buildpack' lifecycle"),
+				"Tried to stage using an unknown lifecycle.",
+				fmt.Errorf("K8S stager cannot stage apps with the specified lifecycle"),
 				lager.Data{
 					"StagingId": params.StagingGUID,
 					"Lifecycle": params.StagingRequest.Lifecycle,
@@ -54,6 +65,87 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 
 			return &operations.StageBadRequest{}
 		}
+
+		// Staging a docker app is essentially a no-op since we're now actually
+		// running the docker image. There's no reason to lookup the start
+		// command or do anything ...
+		if params.StagingRequest.Lifecycle == DockerLifecycleName {
+			go func() {
+				time.Sleep(2 * time.Second)
+
+				dockerLifecycleData := &lib.DockerLifecycle{}
+				if lifecyleDataJson, err := json.Marshal(params.StagingRequest.LifecycleData); err != nil {
+					serverConfig.Logger.Error(
+						"Error marshalling lifecycle data.",
+						err,
+						lager.Data{
+							"StagingId": params.StagingGUID,
+							"Org":       org,
+							"Space":     space,
+						},
+					)
+				} else {
+					if err = json.Unmarshal(lifecyleDataJson, dockerLifecycleData); err != nil {
+						serverConfig.Logger.Error(
+							"Error marshalling lifecycle data.",
+							err,
+							lager.Data{
+								"StagingId":     params.StagingGUID,
+								"Org":           org,
+								"Space":         space,
+								"LifecycleData": string(lifecyleDataJson),
+							},
+						)
+					}
+				}
+
+				ccClient := cc_client.NewCcClient(
+					serverConfig.CCBaseURL,
+					serverConfig.CCUsername,
+					serverConfig.CCPassword,
+					serverConfig.SkipCertVerification,
+				)
+
+				var annotation cc_messages.StagingTaskAnnotation
+
+				// Based on this schema:
+				// https://github.com/cloudfoundry/cloud_controller_ng/blob/173954d8ed2d2b9624d074ba2b277f7bd47c8432/lib/cloud_controller/diego/docker/staging_completion_handler.rb#L14-L24
+				dockerCompletionPayload, err := json.Marshal(map[string]interface{}{
+					"result": map[string]interface{}{
+						"execution_metadata": "{}",
+						"process_types": map[string]interface{}{
+							"web": "start",
+						},
+						"lifecycle_type": "docker",
+						"lifecycle_metadata": map[string]interface{}{
+							"docker_image": dockerLifecycleData.DockerImageUrl,
+						},
+					},
+				})
+
+				if err != nil {
+					serverConfig.Logger.Error("Error marshalling payload for CC staging complete for docker app", err)
+				}
+
+				err = ccClient.StagingComplete(
+					params.StagingGUID,
+					annotation.CompletionCallback,
+					dockerCompletionPayload,
+					serverConfig.Logger)
+
+				if err != nil {
+					serverConfig.Logger.Error("Error calling CC staging complete for docker app", err)
+				}
+
+				serverConfig.Logger.Info("Called CC staging complete for docker app")
+			}()
+
+			return &operations.StageAccepted{}
+		}
+
+		// We're now assuming that we have a buildpack lifecycle
+		// since we've already dealt with the Docker one, and there's nothing else
+		// for the moment
 
 		_, namespaceExists, err := serverConfig.K8SClient.GetStagingNamespace(space)
 
@@ -108,9 +200,39 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 			env[envEntry.Name] = envEntry.Value
 		}
 
-		buildpacks := make([]*k8s.Buildpack, len(params.StagingRequest.LifecycleData.Buildpacks))
+		buildpackLifecycleData := &lib.BuildpackLifecycle{}
+		if lifecyleDataJson, err := json.Marshal(params.StagingRequest.LifecycleData); err != nil {
+			serverConfig.Logger.Error(
+				"Error marshalling lifecycle data.",
+				err,
+				lager.Data{
+					"StagingId": params.StagingGUID,
+					"Org":       org,
+					"Space":     space,
+				},
+			)
 
-		for idx, buildpack := range params.StagingRequest.LifecycleData.Buildpacks {
+			return &operations.StageInternalServerError{}
+		} else {
+			if err = json.Unmarshal(lifecyleDataJson, buildpackLifecycleData); err != nil {
+				serverConfig.Logger.Error(
+					"Error marshalling lifecycle data.",
+					err,
+					lager.Data{
+						"StagingId":     params.StagingGUID,
+						"Org":           org,
+						"Space":         space,
+						"LifecycleData": string(lifecyleDataJson),
+					},
+				)
+
+				return &operations.StageInternalServerError{}
+			}
+		}
+
+		buildpacks := make([]*k8s.Buildpack, len(buildpackLifecycleData.Buildpacks))
+
+		for idx, buildpack := range buildpackLifecycleData.Buildpacks {
 			buildpacks[idx] = &k8s.Buildpack{
 				Id:          buildpack.Key,
 				DownloadURL: buildpack.URL,
@@ -130,11 +252,11 @@ func ConfigureAPI(api *operations.K8sSwaggerAPI, serverConfiguration *lib.Server
 			Image:            serverConfig.StagingImage,
 			Environment:      env,
 			Command:          command,
-			Stack:            params.StagingRequest.LifecycleData.Stack,
+			Stack:            buildpackLifecycleData.Stack,
 			Buildpacks:       buildpacks,
 			AppLifecycleURL:  serverConfig.AppLifecycleURL,
-			AppPackageURL:    params.StagingRequest.LifecycleData.AppBitsDownloadURI,
-			DropletUploadURL: params.StagingRequest.LifecycleData.DropletUploadURI,
+			AppPackageURL:    buildpackLifecycleData.AppBitsDownloadURI,
+			DropletUploadURL: buildpackLifecycleData.DropletUploadURI,
 			SkipCertVerify:   serverConfig.SkipCertVerification,
 			SkipDetection:    false,
 			CompletionCallbackURL: fmt.Sprintf(

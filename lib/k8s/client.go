@@ -26,8 +26,8 @@ type StagingInfo struct {
 	Environment           map[string]string
 	Command               []string
 	Stack                 string
-	Buildpacks            []*Buildpack
 	AppLifecycleURL       string
+	Buildpacks            []*Buildpack
 	AppPackageURL         string
 	DropletUploadURL      string
 	SkipCertVerify        bool
